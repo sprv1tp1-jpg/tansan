@@ -57,6 +57,7 @@ OVERALL_RANKS = [
     {'name': 'Coco', 'profession': '魔導士', 'power': 1680},
     {'name': 'しの', 'profession': '賢者', 'power': 1660},
     {'name': 'せど', 'profession': '剣士', 'power': 1640},
+    {'name': '月宮', 'profession': '賢者', 'power': 1630},
     {'name': 'kazu', 'profession': '魔導士', 'power': 1620},
     {'name': 'もん', 'profession': '剣士', 'power': 1600},
     {'name': 'あい', 'profession': '剣士', 'power': 1580},
@@ -69,12 +70,10 @@ OVERALL_RANKS = [
     {'name': 'くにお', 'profession': '剣士', 'power': 1440},
     {'name': 'みんふぁ', 'profession': '魔導士', 'power': 1420},
     {'name': 'ぽんずー', 'profession': '魔導士', 'power': 1400},
-    {'name': 'らいち', 'profession': '剣士', 'power': 1380},
     {'name': 'ぽりんきー', 'profession': '剣士', 'power': 1360},
     {'name': 'おとも', 'profession': '魔導士', 'power': 1340},
     {'name': 'ぱんどら', 'profession': '騎士', 'power': 1320},
-    {'name': 'うさちゃ', 'profession': '魔導士', 'power': 1300},
-    {'name': '黒紫音', 'profession': '剣士', 'power': 1280}
+    {'name': 'うさちゃ', 'profession': '魔導士', 'power': 1300}
 ]
 
 # Generate profession-specific power rankings
