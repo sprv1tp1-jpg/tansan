@@ -19,9 +19,6 @@ intents.members = True
 # Botインスタンスを作成
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Botが起動を知らせるチャンネルIDを設定
-STARTUP_CHANNEL_ID = 1416618544669655152
-
 # Dictionary to manage members to be excluded from auto group selection
 excluded_members = {}
 # Dictionary to manage members who are to be "carried"
@@ -135,14 +132,7 @@ async def on_ready():
     
     print('------')
 
-    # 特定のチャンネルに起動通知を送信
-    try:
-        channel = bot.get_channel(STARTUP_CHANNEL_ID)
-        if channel:
-            await channel.send('✨ **Botが再起動しました！** 新しいチーム編成ロジックが有効になっています。')
-            print(f'Startup notification sent to channel ID {STARTUP_CHANNEL_ID}')
-    except Exception as e:
-        print(f'起動メッセージの送信中にエラーが発生しました: {e}')
+    # 以前の起動通知は削除されました。
 
 @bot.tree.command(name='add_member', description='新しいメンバーを戦力リストに追加します。')
 @app_commands.describe(member_name='追加するメンバーの名前', profession='メンバーの職業 (剣士, 騎士, 魔導士, 賢者)', power='メンバーの戦力値')
@@ -669,18 +659,20 @@ def create_balanced_teams(members, max_sages, max_knights):
     random.shuffle(knights)
     random.shuffle(other_members)
     
-    num_teams = max(math.ceil(len(members) / 4), len(sages), len(knights))
-    if num_teams == 0:
-        return []
+    # チーム数を動的に計算 (最低1チーム、人数が足りなければ4人未満のチームも作成)
+    num_teams = max(math.ceil(len(members) / 4), 1)
     
     teams = [[] for _ in range(num_teams)]
 
+    # 賢者を均等に分配
     for i, sage in enumerate(sages):
         teams[i % num_teams].append(sage)
     
+    # 騎士を均等に分配
     for i, knight in enumerate(knights):
         teams[i % num_teams].append(knight)
 
+    # 残りのメンバー（魔導士、剣士など）を均等に分配
     for i, member in enumerate(other_members):
         team_index = (i + len(sages) + len(knights)) % num_teams
         teams[team_index].append(member)
@@ -692,33 +684,38 @@ def create_high_power_teams(members, max_sages, max_knights):
     メンバーを戦力順に分配して高戦力型チームを作成します。各チームに賢者と騎士の数を考慮します。
     """
     members.sort(key=lambda x: x['power'], reverse=True)
+    
+    # 各職業のメンバーを分離
     sages = [m for m in members if m['profession'] == '賢者']
     knights = [m for m in members if m['profession'] == '騎士']
     other_members = [m for m in members if m['profession'] != '賢者' and m['profession'] != '騎士']
     
-    teams = [[] for _ in range(math.ceil(len(members) / 4))]
-
-    for i, sage in enumerate(sages):
-        if i < len(teams):
-            teams[i].append(sage)
-
-    for i, knight in enumerate(knights):
-        if i + len(sages) < len(teams):
-            teams[i + len(sages)].append(knight)
-        else:
-            teams[i % len(teams)].append(knight)
-
-    other_members.sort(key=lambda x: x['power'], reverse=True)
-    current_team_index = 0
-    for member in other_members:
-        while len(teams[current_team_index]) >= 4:
-            current_team_index += 1
-            if current_team_index >= len(teams):
-                teams.append([])
-        teams[current_team_index].append(member)
-
-    return teams
+    # チーム数を計算（最低1チーム、4人基準）
+    num_teams = max(math.ceil(len(members) / 4), 1)
+    teams = [[] for _ in range(num_teams)]
     
+    # 戦力が高い順に賢者、騎士をチームに配置
+    # 同じチームに賢者・騎士が重複しないようにする
+    sage_index = 0
+    knight_index = 0
+    for i in range(num_teams):
+        if sage_index < len(sages):
+            teams[i].append(sages[sage_index])
+            sage_index += 1
+        if knight_index < len(knights):
+            teams[i].append(knights[knight_index])
+            knight_index += 1
+            
+    # 残りのメンバーを戦力が高い順に均等に分配
+    remaining_members = sorted(other_members + sages[sage_index:] + knights[knight_index:], key=lambda x: x['power'], reverse=True)
+    
+    current_team = 0
+    for member in remaining_members:
+        teams[current_team].append(member)
+        current_team = (current_team + 1) % num_teams
+        
+    # 最終的に空のチームを除外
+    return [team for team in teams if team]
 
 @bot.tree.command(name='add_leader_candidate', description='リーダー候補にメンバーを追加します。')
 @app_commands.describe(member_names='追加するメンバーの名前 (スペース区切り)')
@@ -805,5 +802,4 @@ async def power_list(interaction: discord.Interaction):
 
 # ボットを起動
 if __name__ == '__main__':
-    bot.run(TOKEN) # <-- この行に置き換える
-
+    bot.run(TOKEN)
