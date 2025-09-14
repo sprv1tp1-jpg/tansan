@@ -25,7 +25,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Botが起動を知らせるチャンネルIDを設定
 # ⚠️ ここにBotがメッセージを送信したいチャンネルの実際のIDを記入してください。
-STARTUP_CHANNEL_ID = 1416618544669655152 # ユーザーが指定したIDを使用
+STARTUP_CHANNEL_ID = 1416618544669655152
 
 # Dictionary to manage members to be excluded from auto group selection
 excluded_members = {}
@@ -77,12 +77,11 @@ OVERALL_RANKS = [
     {'name': 'くにお', 'profession': '剣士', 'power': 1440},
     {'name': 'みんふぁ', 'profession': '魔導士', 'power': 1420},
     {'name': 'ぽんずー', 'profession': '魔導士', 'power': 1400},
-    {'name': 'らいち', 'profession': '剣士', 'power': 1380},
+    {'name': 'ぱんどら', 'profession': '剣士', 'power': 1380},
     {'name': 'ぽりんきー', 'profession': '剣士', 'power': 1360},
     {'name': 'おとも', 'profession': '魔導士', 'power': 1340},
     {'name': 'ぱんどら', 'profession': '騎士', 'power': 1320},
     {'name': 'うさちゃ', 'profession': '魔導士', 'power': 1300},
-    {'name': '黒紫音', 'profession': '剣士', 'power': 1280}
 ]
 
 # Generate profession-specific power rankings
@@ -906,3 +905,4 @@ if __name__ == '__main__':
     
     # Start the bot in the main thread
     run_bot()
+
