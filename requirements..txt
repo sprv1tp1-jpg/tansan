@@ -1,0 +1,5 @@
+pip install Flask gunicorn
+discord.py
+python-dotenv
+Flask
+gunicorn
