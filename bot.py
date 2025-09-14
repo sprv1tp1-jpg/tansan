@@ -505,10 +505,10 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
     num_total_members = len(team1_members) + len(available_members)
     print(f"Number of total members: {num_total_members}")
     
-    if num_total_members < 4 and len(team1_members) < 4:
-        print("Warning: Less than 4 members available.")
+    if num_total_members < 3 and len(team1_members) < 3:
+        print("Warning: Less than 3 members available.")
         await interaction.followup.send(
-            f'⚠️ グループを作成するには最低4人のメンバーが必要です。現在参加可能なメンバーは**{num_total_members}人**です。'
+            f'⚠️ グループを作成するには最低3人のメンバーが必要です。現在参加可能なメンバーは**{num_total_members}人**です。'
             f'\n`/member_list`コマンドでメンバーを確認してください。'
         )
         print("--- Debug Log: Command finished (warning) ---")
@@ -560,20 +560,18 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         
         final_teams.append([carried_member] + top_3_members)
         
-        teams_balance = create_groups(remaining_members_for_balance, 'balance', max_sages, max_knights, max_swordsmen)
+        teams_balance, leftover = create_groups(remaining_members_for_balance, 'balance', max_sages, max_knights, max_swordsmen)
         final_teams.extend(teams_balance)
         
     elif group_type == 'balance':
         print("Group Type: Balance")
         message_header = '**🤖 自動グループ編成結果 (バランス型)**\n\n'
-        teams_balance = create_groups(available_members, 'balance', max_sages, max_knights, max_swordsmen)
-        final_teams.extend(teams_balance)
+        final_teams, leftover = create_groups(available_members, 'balance', max_sages, max_knights, max_swordsmen)
         
     elif group_type == 'high_power':
         print("Group Type: High Power")
         message_header = '**🤖 自動グループ編成結果 (高戦力型)**\n\n'
-        teams_high_power = create_groups(available_members, 'high_power', max_sages, max_knights, max_swordsmen)
-        final_teams.extend(teams_high_power)
+        final_teams, leftover = create_groups(available_members, 'high_power', max_sages, max_knights, max_swordsmen)
         
     else:
         await interaction.followup.send(f'無効なグループタイプです。`balance`, `high_power`, `carry`から選択してください。')
@@ -614,8 +612,9 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
 
         team_size_warning = ''
         if len(members_list) < 4:
-            team_size_warning = '⚠️ **注意:** このチームは4人未満です。\n'
+            team_size_warning = f'⚠️ **注意:** このチームは{len(members_list)}人組です。\n'
         if len(members_list) > 4:
+            # This case should not happen with the new logic, but kept for safety.
             team_size_warning += '⚠️ **注意:** このチームは4人を超えています。\n'
 
         front_liners_count = sum(1 for m in members_list if PROFESSIONS[m['profession']] == '前衛')
@@ -651,12 +650,17 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         message += f'メンバー: {members_str}\n'
         message += f'合計戦力: **{team_power_total}**\n\n'
     
+    if leftover:
+        leftover_str = ', '.join([f'{m["name"]} ({m["profession"]})' for m in leftover])
+        message += f'\n**⚠️ 余剰メンバー**\n{leftover_str}\n'
+
     await interaction.followup.send(message)
     print("--- Debug Log: Command finished successfully ---")
 
 def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
     """
-    メンバーを均等に分配し、賢者、騎士、剣士の数を考慮してバランスの取れたチームを作成します。
+    メンバーを可能な限り4人組に分配し、賢者、騎士、剣士の数を考慮してバランスの取れたチームを作成します。
+    余剰メンバーがいる場合はそのリストを返します。
     """
     if group_type == 'high_power':
         members.sort(key=lambda x: x['power'], reverse=True)
@@ -665,25 +669,40 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
 
     num_total_members = len(members)
     
-    # 1チームの最大人数を4人、最小人数を3人としてチーム数を動的に決定
-    if num_total_members == 0:
-        return []
+    if num_total_members < 3:
+        return [], members
+
+    num_four_person_teams = num_total_members // 4
+    leftover = num_total_members % 4
     
-    # チーム数を計算
-    num_teams = max(1, math.ceil(num_total_members / 4))
+    teams = [[] for _ in range(num_four_person_teams)]
+    leftover_members = []
     
-    teams = [[] for _ in range(num_teams)]
+    if leftover == 1:
+        # 4人組チームを3人組と4人組に分けて、余剰メンバーを出さないように調整
+        if num_four_person_teams > 0:
+            teams = [[] for _ in range(num_four_person_teams - 1)]
+            leftover = 5
+        
     
-    # 全メンバーをチームに均等に分配
+    # メンバーを4人チームと余剰メンバーに分割
     for i, member in enumerate(members):
-        team_index = i % num_teams
-        teams[team_index].append(member)
+        if i < num_total_members - leftover:
+            team_index = i % num_four_person_teams
+            teams[team_index].append(member)
+        else:
+            leftover_members.append(member)
+            
+    # 余剰メンバーが3人か4人いる場合、チームに追加
+    if len(leftover_members) >= 3:
+        teams.append(leftover_members)
+        leftover_members = []
 
     # 職業バランスを調整するための追加処理
     for _ in range(5):  # 5回繰り返してバランスを最適化
         swapped = False
-        for i in range(num_teams):
-            for j in range(i + 1, num_teams):
+        for i in range(len(teams)):
+            for j in range(i + 1, len(teams)):
                 team_a = teams[i]
                 team_b = teams[j]
                 
@@ -720,7 +739,7 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
         if not swapped:
             break
             
-    return teams
+    return teams, leftover_members
 
 
 @bot.tree.command(name='add_leader_candidate', description='リーダー候補にメンバーを追加します。')
