@@ -10,33 +10,6 @@ from threading import Thread
 import time
 import logging
 
-# Botが起動を知らせるチャンネルIDを設定
-# ⚠️ ここにBotがメッセージを送信したいチャンネルの実際のIDを記入してください。
-STARTUP_CHANNEL_ID = 1416618544669655152
-
-@bot.event
-async def on_ready():
-    """Botが起動したときに実行されるイベントハンドラ"""
-    print(f'{bot.user.name} が正常に起動しました！')
-    
-    try:
-        print("コマンドの同期を開始します...")
-        synced = await bot.tree.sync()
-        print(f'{len(synced)} 個のコマンドを同期しました。')
-    except Exception as e:
-        print(f'コマンドの同期中にエラーが発生しました: {e}')
-    
-    print('------')
-
-    # 特定のチャンネルに起動通知を送信
-    try:
-        channel = bot.get_channel(STARTUP_CHANNEL_ID)
-        if channel:
-            await channel.send('✨ **Botが再起動しました！** 新しいチーム編成ロジックが有効になっています。')
-            print(f'Startup notification sent to channel ID {STARTUP_CHANNEL_ID}')
-    except Exception as e:
-        print(f'起動メッセージの送信中にエラーが発生しました: {e}')
-
 # Load the token from a .env file
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -46,8 +19,13 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# Create a bot instance to handle commands
+# Botインスタンスを作成
+# これを他のbot.xxx()の呼び出しより前に配置することが重要です。
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Botが起動を知らせるチャンネルIDを設定
+# ⚠️ ここにBotがメッセージを送信したいチャンネルの実際のIDを記入してください。
+STARTUP_CHANNEL_ID = 1416618544669655152
 
 # Dictionary to manage members to be excluded from auto group selection
 excluded_members = {}
@@ -152,6 +130,7 @@ async def on_ready():
     """Botが起動したときに実行されるイベントハンドラ"""
     print(f'{bot.user.name} が正常に起動しました！')
     
+    # Sync slash commands with Discord
     try:
         print("コマンドの同期を開始します...")
         synced = await bot.tree.sync()
@@ -176,21 +155,16 @@ async def add_member(interaction: discord.Interaction, member_name: str, profess
     """
     Adds a new member to the power list.
     """
-    # Check if profession is valid
     if profession not in PROFESSIONS:
         await interaction.response.send_message(f'無効な職業です。利用可能な職業: {", ".join(PROFESSIONS.keys())}')
         return
 
-    # Check if member already exists
     if any(p['name'] == member_name for p in OVERALL_RANKS):
         await interaction.response.send_message(f'`{member_name}`さんはすでに登録されています。')
         return
 
-    # Add the member
     new_member = {'name': member_name, 'profession': profession, 'power': power}
     OVERALL_RANKS.append(new_member)
-    
-    # Rebuild rankings
     rebuild_player_ranks()
 
     await interaction.response.send_message(f'`{member_name}`さん ({profession}, 戦力: {power})を戦力リストに追加しました。')
@@ -204,15 +178,11 @@ async def remove_member(interaction: discord.Interaction, member_name: str):
     """
     global OVERALL_RANKS
     
-    # Find the member in the list
     member_to_remove = next((p for p in OVERALL_RANKS if p['name'] == member_name), None)
 
     if member_to_remove:
         OVERALL_RANKS.remove(member_to_remove)
-        
-        # Rebuild rankings
         rebuild_player_ranks()
-        
         await interaction.response.send_message(f'`{member_name}`さんを戦力リストから削除しました。')
     else:
         await interaction.response.send_message(f'`{member_name}`さんは戦力リストに見つかりませんでした。')
@@ -224,52 +194,38 @@ async def rename_member(interaction: discord.Interaction, old_name: str, new_nam
     """
     Changes a member's name.
     """
-    # Find the member in the overall ranking list
     member_to_rename = next((p for p in OVERALL_RANKS if p['name'] == old_name), None)
 
     if not member_to_rename:
         await interaction.response.send_message(f'`{old_name}`さんは戦力リストに見つかりませんでした。')
         return
 
-    # Check if the new name already exists
     if any(p['name'] == new_name for p in OVERALL_RANKS):
         await interaction.response.send_message(f'`{new_name}`はすでに他のメンバーが使用しています。')
         return
     
-    # Update the name in the overall ranking
     member_to_rename['name'] = new_name
     
-    # Update the name in the leader candidate list
     if old_name in LEADER_CANDIDATES:
         LEADER_CANDIDATES[LEADER_CANDIDATES.index(old_name)] = new_name
     
-    # Update the name in the excluded members list
     user_id = interaction.user.id
-    if user_id in excluded_members:
-        if old_name in excluded_members[user_id]:
-            excluded_members[user_id].remove(old_name)
-            excluded_members[user_id].append(new_name)
+    if user_id in excluded_members and old_name in excluded_members[user_id]:
+        excluded_members[user_id].remove(old_name)
+        excluded_members[user_id].append(new_name)
     
-    # Update the name in the carried members list
-    if user_id in carried_members:
-        if old_name in carried_members[user_id]:
-            carried_members[user_id].remove(old_name)
-            carried_members[user_id].append(new_name)
+    if user_id in carried_members and old_name in carried_members[user_id]:
+        carried_members[user_id].remove(old_name)
+        carried_members[user_id].append(new_name)
             
-    # Update the name in the fixed members list
-    if user_id in fixed_teams:
-        if old_name in fixed_teams[user_id]:
-            fixed_teams[user_id].remove(old_name)
-            fixed_teams[user_id].append(new_name)
+    if user_id in fixed_teams and old_name in fixed_teams[user_id]:
+        fixed_teams[user_id].remove(old_name)
+        fixed_teams[user_id].append(new_name)
             
-    # Update the name in the preferred members list
-    if user_id in preferred_members:
-        if old_name in preferred_members[user_id]:
-            preferred_members[user_id].remove(old_name)
-            preferred_members[user_id].append(new_name)
+    if user_id in preferred_members and old_name in preferred_members[user_id]:
+        preferred_members[user_id].remove(old_name)
+        preferred_members[user_id].append(new_name)
 
-
-    # Rebuild rankings
     rebuild_player_ranks()
 
     await interaction.response.send_message(f'メンバー名 `{old_name}` を `{new_name}` に変更しました。')
@@ -307,7 +263,6 @@ async def member_list(interaction: discord.Interaction):
 async def set_carried(interaction: discord.Interaction, member_names: str):
     """
     Sets one or more members as "carried" members.
-    Note: Autocomplete is not supported for space-separated arguments.
     """
     user_id = interaction.user.id
     if user_id not in carried_members:
@@ -361,21 +316,18 @@ async def swap_power(interaction: discord.Interaction, member1: str, member2: st
     member1_name = member1
     member2_name = member2
 
-    # Check if members exist, return None if not found
-    member1 = next((p for p in OVERALL_RANKS if p['name'] == member1_name), None)
-    member2 = next((p for p in OVERALL_RANKS if p['name'] == member2_name), None)
+    member1_data = next((p for p in OVERALL_RANKS if p['name'] == member1_name), None)
+    member2_data = next((p for p in OVERALL_RANKS if p['name'] == member2_name), None)
 
-    if not member1 or not member2:
+    if not member1_data or not member2_data:
         await interaction.response.send_message('指定されたメンバーが見つかりません。フルネームを正しく入力してください。')
         return
 
-    # Swap power values
-    member1_power = member1['power']
-    member2_power = member2['power']
-    member1['power'] = member2_power
-    member2['power'] = member1_power
+    member1_power = member1_data['power']
+    member2_power = member2_data['power']
+    member1_data['power'] = member2_power
+    member2_data['power'] = member1_power
 
-    # Rebuild profession-specific rankings
     rebuild_player_ranks()
 
     await interaction.response.send_message(f'{member1_name}さん（戦力: {member1_power}）と{member2_name}さん（戦力: {member2_power}）の戦力値を交換しました。')
@@ -385,7 +337,6 @@ async def swap_power(interaction: discord.Interaction, member1: str, member2: st
 async def exclude_member(interaction: discord.Interaction, member_names: str):
     """
     Sets one or more members to be excluded from auto group selection.
-    Note: Autocomplete is not supported for space-separated arguments.
     """
     user_id = interaction.user.id
     if user_id not in excluded_members:
@@ -400,7 +351,6 @@ async def exclude_member(interaction: discord.Interaction, member_names: str):
         if member_name not in [p['name'] for p in OVERALL_RANKS]:
             not_found_members.append(member_name)
         elif member_name in excluded_members[user_id]:
-            # Ignore members who are already in the exclusion list
             pass
         else:
             excluded_members[user_id].append(member_name)
@@ -430,7 +380,6 @@ async def clear_excluded(interaction: discord.Interaction):
     else:
         await interaction.response.send_message('除外メンバーリストはすでに空です。')
         
-# New: Command to fix a team
 @bot.tree.command(name='fix_team', description='指定したメンバーをチームに固定し、特定のメンバーを優先的に追加します。')
 @app_commands.describe(fixed_names='チームに固定するメンバーの名前 (スペース区切り)', preferred_names='固定チームに優先的に追加するメンバーの名前 (スペース区切り)')
 async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred_names: str = None):
@@ -447,7 +396,6 @@ async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred
     not_found_fixed = []
     fixed_list = fixed_names.split()
     
-    # Process fixed members
     for name in fixed_list:
         if name not in [p['name'] for p in OVERALL_RANKS]:
             not_found_fixed.append(name)
@@ -464,7 +412,6 @@ async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred
     if not_found_fixed:
         message += f'⚠️ 登録されていない固定メンバー: `{", ".join(not_found_fixed)}`\n'
     
-    # Process preferred members if provided
     if preferred_names:
         added_preferred = []
         not_found_preferred = []
@@ -488,7 +435,6 @@ async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred
         
     await interaction.response.send_message(message)
 
-# New: Command to clear fixed team list
 @bot.tree.command(name='clear_fixed', description='チーム固定メンバーと優先メンバーリストをリセットします。')
 async def clear_fixed(interaction: discord.Interaction):
     """
@@ -512,7 +458,6 @@ async def check_available(interaction: discord.Interaction):
     fixed_list = fixed_teams.get(user_id, [])
     preferred_list = preferred_members.get(user_id, [])
     
-    # The set of all members involved in fixed/preferred teams
     fixed_and_preferred = set(fixed_list) | set(preferred_list)
     
     available_members = [
@@ -552,11 +497,9 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
     print(f"Preferred Members List: {preferred_list}")
     print(f"Probability: {probability}")
     
-    # Step 1: Initialize lists for team formation
     fixed_members = [p for p in OVERALL_RANKS if p['name'] in fixed_list]
     preferred_for_team1 = [p for p in OVERALL_RANKS if p['name'] in preferred_list]
     
-    # Separate the members based on probability
     team1_members = fixed_members[:]
     other_members = []
     
@@ -566,23 +509,18 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         else:
             other_members.append(member)
             
-    # Step 2: Filter available members, excluding those already processed
     processed_members_names = set(fixed_list) | set(preferred_list)
     available_members = [
         p for p in OVERALL_RANKS
         if p['name'] not in excluded_list and p['name'] not in processed_members_names
     ]
     
-    # Add the "other" members from the preferred list to the available members
     available_members.extend(other_members)
-    
-    # Shuffle the available members to ensure randomness
     random.shuffle(available_members)
     
     num_total_members = len(team1_members) + len(available_members)
     print(f"Number of total members: {num_total_members}")
     
-    # Check for a minimum of 4 members
     if num_total_members < 4 and len(team1_members) < 4:
         print("Warning: Less than 4 members available.")
         await interaction.followup.send(
@@ -595,11 +533,9 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
     final_teams = []
     message_header = ''
 
-    # Add the probabilistic fixed team first
     if team1_members:
         final_teams.append(team1_members)
 
-    # Force "carry" type if carried members are set
     if carried_list and group_type != 'carry':
         await interaction.followup.send(f'キャリー対象が設定されているため、グループタイプを`carry`に強制設定します。')
         group_type = 'carry'
@@ -613,7 +549,6 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
             print("--- Debug Log: Command finished (error) ---")
             return
 
-        # Find carried member in available members
         carried_member = next((m for m in available_members if m['name'] == carried_list[0]), None)
 
         if not carried_member:
@@ -631,20 +566,16 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
             print("--- Debug Log: Command finished (warning) ---")
             return
 
-        # Randomly select 3 players from the top 10 power players
         top_players_pool = remaining_members[:10]
         if len(top_players_pool) < 3:
             top_3_members = top_players_pool
         else:
             top_3_members = random.sample(top_players_pool, 3)
 
-        # Exclude the selected members from the remaining members
         remaining_members_for_balance = [m for m in remaining_members if m not in top_3_members]
         
-        # Add the carry team to the final list
         final_teams.append([carried_member] + top_3_members)
         
-        # Form balanced teams with the remaining members
         teams_balance = create_balanced_teams(remaining_members_for_balance, max_sages, max_knights)
         final_teams.extend(teams_balance)
         
@@ -665,7 +596,6 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         print("--- Debug Log: Command finished (invalid type) ---")
         return
 
-    # Select a leader for each team
     teams_with_leader = []
     for team in final_teams:
         leader = None
@@ -680,7 +610,6 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
             'leader': leader
         })
 
-    # Display results
     if not teams_with_leader:
         print("Warning: Failed to form groups.")
         await interaction.followup.send("グループを編成できませんでした。")
@@ -699,18 +628,15 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         team_power_total = sum(m['power'] for m in members_list)
         members_str = ', '.join([f'{m["name"]} ({m["profession"]})' for m in members_list])
 
-        # Check for teams with fewer than 4 members AFTER formation
         team_size_warning = ''
         if len(members_list) < 4:
             team_size_warning = '⚠️ **注意:** このチームは4人未満です。\n'
         
-        # Check for the number of front-line members (Swordsman/Knight)
         front_liners_count = sum(1 for m in members_list if PROFESSIONS[m['profession']] == '前衛')
         warning_message = ''
         if front_liners_count == 0:
             warning_message = '⚠️ **注意:** このチームには前衛メンバー (剣士/騎士) がいません。\n'
 
-        # チーム内の役割重複チェックと警告
         role_warnings = ''
         sage_count = sum(1 for m in members_list if m['profession'] == '賢者')
         knight_count = sum(1 for m in members_list if m['profession'] == '騎士')
@@ -735,164 +661,6 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
     
     await interaction.followup.send(message)
     print("--- Debug Log: Command finished successfully ---")
-    
-# チーム内の役割重複チェックと警告
-    role_warnings = ''
-    sage_count = sum(1 for m in members_list if m['profession'] == '賢者')
-    knight_count = sum(1 for m in members_list if m['profession'] == '騎士')
-    
-    if sage_count > max_sages:
-        role_warnings += f'⚠️ **注意:** このチームには賢者が{sage_count}名います。（上限は{max_sages}名です）\n'
-    if knight_count > max_knights:
-        role_warnings += f'⚠️ **注意:** このチームには騎士が{knight_count}名います。（上限は{max_knights}名です）\n'
-
-    message += team_size_warning
-    message += warning_message
-    message += role_warnings  # 新しい役割警告を追加
-    message += f'メンバー: {members_str}\n'
-    message += f'合計戦力: **{team_power_total}**\n\n'
-    
-    # Check for a minimum of 4 members
-    if num_total_members < 4 and len(team1_members) < 4:
-        print("Warning: Less than 4 members available.")
-        await interaction.followup.send(
-            f'⚠️ グループを作成するには最低4人のメンバーが必要です。現在参加可能なメンバーは**{num_total_members}人**です。'
-            f'\n`/member_list`コマンドでメンバーを確認してください。'
-        )
-        print("--- Debug Log: Command finished (warning) ---")
-        return
-
-    final_teams = []
-    message_header = ''
-
-    # Add the probabilistic fixed team first
-    if team1_members:
-        final_teams.append(team1_members)
-
-    # Force "carry" type if carried members are set
-    if carried_list and group_type != 'carry':
-        await interaction.followup.send(f'キャリー対象が設定されているため、グループタイプを`carry`に強制設定します。')
-        group_type = 'carry'
-
-    if group_type == 'carry':
-        print("Group Type: Carry")
-        message_header = '**🤖 自動グループ編成結果 (キャリー型)**\n\n'
-        if not carried_list:
-            print("Error: Carried list is empty.")
-            await interaction.followup.send('キャリー型グループを作成するには、`/set_carried`でキャリー対象を設定するか、`/auto_create_group carry`と指定してください。')
-            print("--- Debug Log: Command finished (error) ---")
-            return
-
-        # Find carried member in available members
-        carried_member = next((m for m in available_members if m['name'] == carried_list[0]), None)
-
-        if not carried_member:
-            print(f"Error: Carried member '{carried_list[0]}' not found in available members.")
-            await interaction.followup.send(f'指定されたキャリーメンバー `{carried_list[0]}` が参加可能メンバーリストに見つかりませんでした。')
-            print("--- Debug Log: Command finished (error) ---")
-            return
-
-        remaining_members = [m for m in available_members if m['name'] != carried_list[0]]
-        remaining_members.sort(key=lambda x: x['power'], reverse=True)
-
-        if len(remaining_members) < 3:
-            print(f"Warning: Less than 3 remaining members. Count: {len(remaining_members)}")
-            await interaction.followup.send(f'キャリーチームを編成するには、{len(remaining_members)}人ではメンバーが不足しています。')
-            print("--- Debug Log: Command finished (warning) ---")
-            return
-
-        # Randomly select 3 players from the top 10 power players
-        top_players_pool = remaining_members[:10]
-        if len(top_players_pool) < 3:
-            top_3_members = top_players_pool
-        else:
-            top_3_members = random.sample(top_players_pool, 3)
-
-        # Exclude the selected members from the remaining members
-        remaining_members_for_balance = [m for m in remaining_members if m not in top_3_members]
-        
-        # Add the carry team to the final list
-        final_teams.append([carried_member] + top_3_members)
-        
-        # Form balanced teams with the remaining members
-        teams_balance = create_balanced_teams(remaining_members_for_balance)
-        final_teams.extend(teams_balance)
-        
-    elif group_type == 'balance':
-        print("Group Type: Balance")
-        message_header = '**🤖 自動グループ編成結果 (バランス型)**\n\n'
-        teams_balance = create_balanced_teams(available_members)
-        final_teams.extend(teams_balance)
-        
-    elif group_type == 'high_power':
-        print("Group Type: High Power")
-        message_header = '**🤖 自動グループ編成結果 (高戦力型)**\n\n'
-        teams_high_power = create_high_power_teams(available_members)
-        final_teams.extend(teams_high_power)
-        
-    else:
-        await interaction.followup.send(f'無効なグループタイプです。`balance`, `high_power`, `carry`から選択してください。')
-        print("--- Debug Log: Command finished (invalid type) ---")
-        return
-
-    # Select a leader for each team
-    teams_with_leader = []
-    for team in final_teams:
-        leader = None
-        leader_candidates_in_team = [m for m in team if m['name'] in LEADER_CANDIDATES]
-        if leader_candidates_in_team:
-            leader = max(leader_candidates_in_team, key=lambda x: x['power'])
-        
-        team_members_without_leader = [m for m in team if m['name'] != (leader['name'] if leader else '')]
-        
-        teams_with_leader.append({
-            'members': team_members_without_leader,
-            'leader': leader
-        })
-
-    # Display results
-    if not teams_with_leader:
-        print("Warning: Failed to form groups.")
-        await interaction.followup.send("グループを編成できませんでした。")
-        print("--- Debug Log: Command finished (formation failed) ---")
-        return
-
-    message = message_header
-    for i, team_data in enumerate(teams_with_leader):
-        leader = team_data['leader']
-        members = team_data['members']
-        
-        members_list = members[:]
-        if leader:
-            members_list.append(leader)
-        
-        team_power_total = sum(m['power'] for m in members_list)
-        members_str = ', '.join([f'{m["name"]} ({m["profession"]})' for m in members_list])
-
-        # Check for teams with fewer than 4 members AFTER formation
-        team_size_warning = ''
-        if len(members_list) < 4:
-            team_size_warning = '⚠️ **注意:** このチームは4人未満です。\n'
-        
-        # Check for the number of front-line members (Swordsman/Knight)
-        front_liners_count = sum(1 for m in members_list if PROFESSIONS[m['profession']] == '前衛')
-        warning_message = ''
-        if front_liners_count == 0:
-            warning_message = '⚠️ **注意:** このチームには前衛メンバー (剣士/騎士) がいません。\n'
-
-        message += f'**=== チーム {i + 1} ===**\n'
-        if leader:
-            message += f'リーダー: **{leader["name"]}** ({leader["profession"]})\n'
-        else:
-            message += f'リーダー: **未決定**\n'
-            message += '⚠️ **注意:** リーダー候補がいなかったためリーダーが自動設定されませんでした。\n'
-        message += team_size_warning
-        message += warning_message
-        message += f'メンバー: {members_str}\n'
-        message += f'合計戦力: **{team_power_total}**\n\n'
-    
-    await interaction.followup.send(message)
-    print("--- Debug Log: Command finished successfully ---")
 
 def create_balanced_teams(members, max_sages, max_knights):
     """
@@ -906,22 +674,18 @@ def create_balanced_teams(members, max_sages, max_knights):
     random.shuffle(knights)
     random.shuffle(other_members)
     
-    # チーム数は、賢者と騎士の合計数または総メンバー数/4の大きい方に設定
     num_teams = max(math.ceil(len(members) / 4), len(sages), len(knights))
     if num_teams == 0:
         return []
     
     teams = [[] for _ in range(num_teams)]
 
-    # まず賢者を各チームに1名ずつ分配
     for i, sage in enumerate(sages):
         teams[i % num_teams].append(sage)
     
-    # 次に騎士を各チームに1名ずつ分配
     for i, knight in enumerate(knights):
         teams[i % num_teams].append(knight)
 
-    # 残りのメンバーを均等に分配
     for i, member in enumerate(other_members):
         team_index = (i + len(sages) + len(knights)) % num_teams
         teams[team_index].append(member)
@@ -939,28 +703,23 @@ def create_high_power_teams(members, max_sages, max_knights):
     
     teams = [[] for _ in range(math.ceil(len(members) / 4))]
 
-    # 賢者を戦力の高いチームに優先的に分配
     for i, sage in enumerate(sages):
         if i < len(teams):
             teams[i].append(sage)
 
-    # 騎士を賢者の次に戦力の高いチームに優先的に分配
     for i, knight in enumerate(knights):
         if i + len(sages) < len(teams):
             teams[i + len(sages)].append(knight)
         else:
-            # チームが足りなければ、既存チームに追加
             teams[i % len(teams)].append(knight)
 
-    # 残りのメンバーを戦力の高い順に分配
     other_members.sort(key=lambda x: x['power'], reverse=True)
     current_team_index = 0
     for member in other_members:
-        # メンバーを入れるスペースがあるチームを見つける
         while len(teams[current_team_index]) >= 4:
             current_team_index += 1
             if current_team_index >= len(teams):
-                teams.append([])  # 必要なら新しいチームを作成
+                teams.append([])
         teams[current_team_index].append(member)
 
     return teams
@@ -971,7 +730,6 @@ def create_high_power_teams(members, max_sages, max_knights):
 async def add_leader_candidate(interaction: discord.Interaction, member_names: str):
     """
     Adds one or more members to the list of leader candidates.
-    Note: Autocomplete is not supported for space-separated arguments.
     """
     added_members = []
     not_found_members = []
@@ -1004,7 +762,6 @@ async def add_leader_candidate(interaction: discord.Interaction, member_names: s
 async def remove_leader_candidate(interaction: discord.Interaction, member_names: str):
     """
     Removes one or more members from the list of leader candidates.
-    Note: Autocomplete is not supported for space-separated arguments.
     """
     removed_members = []
     not_found_candidates = []
@@ -1054,6 +811,10 @@ async def power_list(interaction: discord.Interaction):
 # Flaskサーバーのインスタンスを作成
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "Discord Bot is running!"
+
 # Botを起動する関数
 def run_bot():
     """Function to start the Discord Bot"""
@@ -1062,65 +823,16 @@ def run_bot():
     else:
         bot.run(TOKEN)
 
-@app.route('/')
-def home():
-    return "Discord Bot is running!"
-
 # Flaskサーバーを起動する関数
 def run_flask():
     """Function to start the Flask server"""
     port = int(os.environ.get("PORT", 5000))
-    # RenderはGunicornを使用するため、ここでは単純なapp.run()を使用します。
-    # Gunicornの起動コマンドは別途Renderの設定で指定します。
-    pass
+    app.run(host="0.0.0.0", port=port)
 
 if __name__ == '__main__':
-    # Start the Flask server in a separate thread
+    # Flaskサーバーを別スレッドで起動
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
     
-    # Start the bot in the main thread
-
+    # Botをメインスレッドで起動
     run_bot()
-
-# ... (中略：既存のコードすべて) ...
-
-# Flaskサーバーのインスタンスを作成
-app = Flask(__name__)
-
-# Botを起動する関数
-def run_bot():
-    """Function to start the Discord Bot"""
-    if TOKEN is None:
-        print("Error: DISCORD_TOKEN is not set in the .env file.")
-    else:
-        bot.run(TOKEN)
-
-# Flaskサーバーを起動する関数
-def run_flask():
-    """Function to start the Flask server"""
-    port = int(os.environ.get("PORT", 5000))
-    # RenderはGunicornを使用するため、ここでは単純なapp.run()を使用します。
-    # Gunicornの起動コマンドは別途Renderの設定で指定します。
-    pass
-
-@app.route('/')
-def home():
-    return "Discord Bot is running!"
-
-@app.before_request
-def before_request_func():
-    # This function is executed before each request to the Flask server
-    # We can use this to start the bot only once
-    if not hasattr(app, 'bot_thread'):
-        print("Starting Discord Bot thread...")
-        app.bot_thread = Thread(target=run_bot)
-        app.bot_thread.start()
-
-# Gunicornが起動する際に、Botも起動させるための記述
-if __name__ != '__main__':
-    print("This is running in Gunicorn. Starting Discord Bot thread...")
-    flask_thread = Thread(target=run_bot)
-    flask_thread.start()
-
-
