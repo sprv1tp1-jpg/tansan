@@ -805,4 +805,5 @@ async def power_list(interaction: discord.Interaction):
 
 # ボットを起動
 if __name__ == '__main__':
-    run_bot()
+    bot.run(TOKEN) # <-- この行に置き換える
+
