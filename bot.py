@@ -8,6 +8,7 @@ import math
 from flask import Flask
 from threading import Thread
 import time
+import logging
 
 # Load the token from a .env file
 load_dotenv()
@@ -833,4 +834,45 @@ if __name__ == '__main__':
     flask_thread.start()
     
     # Start the bot in the main thread
+
     run_bot()
+
+# ... (中略：既存のコードすべて) ...
+
+# Flaskサーバーのインスタンスを作成
+app = Flask(__name__)
+
+# Botを起動する関数
+def run_bot():
+    """Function to start the Discord Bot"""
+    if TOKEN is None:
+        print("Error: DISCORD_TOKEN is not set in the .env file.")
+    else:
+        bot.run(TOKEN)
+
+# Flaskサーバーを起動する関数
+def run_flask():
+    """Function to start the Flask server"""
+    port = int(os.environ.get("PORT", 5000))
+    # RenderはGunicornを使用するため、ここでは単純なapp.run()を使用します。
+    # Gunicornの起動コマンドは別途Renderの設定で指定します。
+    pass
+
+@app.route('/')
+def home():
+    return "Discord Bot is running!"
+
+@app.before_request
+def before_request_func():
+    # This function is executed before each request to the Flask server
+    # We can use this to start the bot only once
+    if not hasattr(app, 'bot_thread'):
+        print("Starting Discord Bot thread...")
+        app.bot_thread = Thread(target=run_bot)
+        app.bot_thread.start()
+
+# Gunicornが起動する際に、Botも起動させるための記述
+if __name__ != '__main__':
+    print("This is running in Gunicorn. Starting Discord Bot thread...")
+    flask_thread = Thread(target=run_bot)
+    flask_thread.start()
