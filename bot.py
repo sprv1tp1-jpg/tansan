@@ -623,6 +623,10 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         if front_liners_count == 0:
             warning_message = '⚠️ **注意:** このチームには前衛メンバー (剣士/騎士) がいません。\n'
 
+        healer_count = sum(1 for m in members_list if m['profession'] == '賢者')
+        if healer_count == 0:
+            warning_message += '⚠️ **注意:** このチームにはヒーラーがいません。\n'
+            
         role_warnings = ''
         sage_count = sum(1 for m in members_list if m['profession'] == '賢者')
         knight_count = sum(1 for m in members_list if m['profession'] == '騎士')
@@ -682,10 +686,9 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
             for j in range(i + 1, num_teams):
                 team_a = teams[i]
                 team_b = teams[j]
-
-                # チームAの賢者が多すぎる場合
+                
+                # 賢者、騎士、剣士の数が上限を超えていないかチェック
                 if sum(1 for m in team_a if m['profession'] == '賢者') > max_sages and sum(1 for m in team_b if m['profession'] == '賢者') < max_sages:
-                    # 賢者とそれ以外のメンバーを交換
                     sage_a = next((m for m in team_a if m['profession'] == '賢者'), None)
                     non_sage_b = next((m for m in team_b if m['profession'] != '賢者'), None)
                     if sage_a and non_sage_b:
@@ -694,8 +697,7 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
                         team_a.append(non_sage_b)
                         team_b.append(sage_a)
                         swapped = True
-
-                # チームAの騎士が多すぎる場合
+                        
                 if sum(1 for m in team_a if m['profession'] == '騎士') > max_knights and sum(1 for m in team_b if m['profession'] == '騎士') < max_knights:
                     knight_a = next((m for m in team_a if m['profession'] == '騎士'), None)
                     non_knight_b = next((m for m in team_b if m['profession'] != '騎士'), None)
@@ -706,7 +708,6 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
                         team_b.append(knight_a)
                         swapped = True
 
-                # チームAの剣士が多すぎる場合
                 if sum(1 for m in team_a if m['profession'] == '剣士') > max_swordsmen and sum(1 for m in team_b if m['profession'] == '剣士') < max_swordsmen:
                     swordsman_a = next((m for m in team_a if m['profession'] == '剣士'), None)
                     non_swordsman_b = next((m for m in team_b if m['profession'] != '剣士'), None)
