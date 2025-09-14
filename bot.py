@@ -132,8 +132,6 @@ async def on_ready():
     
     print('------')
 
-    # 以前の起動通知は削除されました。
-
 @bot.tree.command(name='add_member', description='新しいメンバーを戦力リストに追加します。')
 @app_commands.describe(member_name='追加するメンバーの名前', profession='メンバーの職業 (剣士, 騎士, 魔導士, 賢者)', power='メンバーの戦力値')
 async def add_member(interaction: discord.Interaction, member_name: str, profession: str, power: int):
@@ -631,7 +629,6 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         if knight_count > max_knights:
             role_warnings += f'⚠️ **注意:** このチームには騎士が{knight_count}名います。（上限は{max_knights}名です）\n'
 
-
         message += f'**=== チーム {i + 1} ===**\n'
         if leader:
             message += f'リーダー: **{leader["name"]}** ({leader["profession"]})\n'
@@ -651,31 +648,32 @@ def create_balanced_teams(members, max_sages, max_knights):
     """
     メンバーを均等に分配し、賢者と騎士の数を考慮してバランスの取れたチームを作成します。
     """
-    sages = [m for m in members if m['profession'] == '賢者']
-    knights = [m for m in members if m['profession'] == '騎士']
-    other_members = [m for m in members if m['profession'] != '賢者' and m['profession'] != '騎士']
-
-    random.shuffle(sages)
-    random.shuffle(knights)
-    random.shuffle(other_members)
+    # すべてのメンバーをシャッフル
+    random.shuffle(members)
     
-    # チーム数を動的に計算 (最低1チーム、人数が足りなければ4人未満のチームも作成)
-    num_teams = max(math.ceil(len(members) / 4), 1)
+    num_total_members = len(members)
+    num_teams = max(math.ceil(num_total_members / 4), 1)
     
     teams = [[] for _ in range(num_teams)]
 
-    # 賢者を均等に分配
-    for i, sage in enumerate(sages):
-        teams[i % num_teams].append(sage)
-    
-    # 騎士を均等に分配
-    for i, knight in enumerate(knights):
-        teams[i % num_teams].append(knight)
-
-    # 残りのメンバー（魔導士、剣士など）を均等に分配
-    for i, member in enumerate(other_members):
-        team_index = (i + len(sages) + len(knights)) % num_teams
-        teams[team_index].append(member)
+    current_team_index = 0
+    for member in members:
+        # チームに賢者や騎士が上限に達していないか確認
+        while True:
+            current_team = teams[current_team_index]
+            sage_count = sum(1 for m in current_team if m['profession'] == '賢者')
+            knight_count = sum(1 for m in current_team if m['profession'] == '騎士')
+            
+            if member['profession'] == '賢者' and sage_count >= max_sages:
+                current_team_index = (current_team_index + 1) % num_teams
+            elif member['profession'] == '騎士' and knight_count >= max_knights:
+                current_team_index = (current_team_index + 1) % num_teams
+            else:
+                break
+        
+        teams[current_team_index].append(member)
+        # 次のチームに移動
+        current_team_index = (current_team_index + 1) % num_teams
         
     return teams
 
@@ -685,37 +683,40 @@ def create_high_power_teams(members, max_sages, max_knights):
     """
     members.sort(key=lambda x: x['power'], reverse=True)
     
-    # 各職業のメンバーを分離
-    sages = [m for m in members if m['profession'] == '賢者']
-    knights = [m for m in members if m['profession'] == '騎士']
-    other_members = [m for m in members if m['profession'] != '賢者' and m['profession'] != '騎士']
-    
-    # チーム数を計算（最低1チーム、4人基準）
-    num_teams = max(math.ceil(len(members) / 4), 1)
+    num_total_members = len(members)
+    num_teams = max(math.ceil(num_total_members / 4), 1)
     teams = [[] for _ in range(num_teams)]
     
-    # 戦力が高い順に賢者、騎士をチームに配置
-    # 同じチームに賢者・騎士が重複しないようにする
-    sage_index = 0
-    knight_index = 0
-    for i in range(num_teams):
-        if sage_index < len(sages):
-            teams[i].append(sages[sage_index])
-            sage_index += 1
-        if knight_index < len(knights):
-            teams[i].append(knights[knight_index])
-            knight_index += 1
-            
-    # 残りのメンバーを戦力が高い順に均等に分配
-    remaining_members = sorted(other_members + sages[sage_index:] + knights[knight_index:], key=lambda x: x['power'], reverse=True)
-    
-    current_team = 0
-    for member in remaining_members:
-        teams[current_team].append(member)
-        current_team = (current_team + 1) % num_teams
+    for i, member in enumerate(members):
+        team_index = i % num_teams
+        teams[team_index].append(member)
         
-    # 最終的に空のチームを除外
-    return [team for team in teams if team]
+    # 戦力順に割り当てた後、賢者と騎士が偏っていないか確認・修正
+    # このロジックは完全な解決策ではないが、バランスを改善
+    for _ in range(3): # 複数回繰り返してバランスを調整
+        for team_a in teams:
+            for team_b in teams:
+                if team_a == team_b or len(team_a) == 0 or len(team_b) == 0:
+                    continue
+                
+                sage_count_a = sum(1 for m in team_a if m['profession'] == '賢者')
+                knight_count_a = sum(1 for m in team_a if m['profession'] == '騎士')
+                sage_count_b = sum(1 for m in team_b if m['profession'] == '賢者')
+                knight_count_b = sum(1 for m in team_b if m['profession'] == '騎士')
+
+                if sage_count_a > max_sages and sage_count_b < max_sages:
+                    sage_in_a = next((m for m in team_a if m['profession'] == '賢者'), None)
+                    if sage_in_a:
+                        team_a.remove(sage_in_a)
+                        team_b.append(sage_in_a)
+                
+                if knight_count_a > max_knights and knight_count_b < max_knights:
+                    knight_in_a = next((m for m in team_a if m['profession'] == '騎士'), None)
+                    if knight_in_a:
+                        team_a.remove(knight_in_a)
+                        team_b.append(knight_in_a)
+
+    return teams
 
 @bot.tree.command(name='add_leader_candidate', description='リーダー候補にメンバーを追加します。')
 @app_commands.describe(member_names='追加するメンバーの名前 (スペース区切り)')
