@@ -12,7 +12,7 @@ import logging
 
 # Botが起動を知らせるチャンネルIDを設定
 # ⚠️ ここにBotがメッセージを送信したいチャンネルの実際のIDを記入してください。
-STARTUP_CHANNEL_ID = 123456789012345678
+STARTUP_CHANNEL_ID = 1416618544669655152
 
 @bot.event
 async def on_ready():
@@ -1122,4 +1122,5 @@ if __name__ != '__main__':
     print("This is running in Gunicorn. Starting Discord Bot thread...")
     flask_thread = Thread(target=run_bot)
     flask_thread.start()
+
 
