@@ -671,31 +671,29 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
     if num_total_members < 3:
         return [], members
 
+    teams = []
+    leftover = []
+    
+    # 4人組チームを可能な限り作成
     num_four_person_teams = num_total_members // 4
-    leftover = num_total_members % 4
     
-    teams = [[] for _ in range(num_four_person_teams)]
-    leftover_members = []
-    
-    if leftover == 1:
-        # 4人組チームを3人組と4人組に分けて、余剰メンバーを出さないように調整
-        if num_four_person_teams > 0:
-            teams = [[] for _ in range(num_four_person_teams - 1)]
-            leftover = 5
+    for i in range(num_four_person_teams):
+        teams.append(members[i*4:(i+1)*4])
         
+    # 余剰メンバーを抽出
+    leftover = members[num_four_person_teams*4:]
     
-    # メンバーを4人チームと余剰メンバーに分割
-    for i, member in enumerate(members):
-        if i < num_total_members - leftover:
-            team_index = i % num_four_person_teams
-            teams[team_index].append(member)
-        else:
-            leftover_members.append(member)
-            
-    # 余剰メンバーが3人か4人いる場合、チームに追加
-    if len(leftover_members) >= 3:
-        teams.append(leftover_members)
-        leftover_members = []
+    # 余剰メンバーが3人以上いる場合、そのメンバーたちだけでチームを作成
+    if len(leftover) >= 3:
+        teams.append(leftover)
+        leftover = []
+    else:
+        # 余剰メンバーを既存のチームに分配
+        for member in leftover:
+            # 戦力が最も低いチームに追加
+            teams.sort(key=lambda team: sum(m['power'] for m in team))
+            teams[0].append(member)
+        leftover = []
 
     # 職業バランスを調整するための追加処理
     for _ in range(5):  # 5回繰り返してバランスを最適化
@@ -738,7 +736,7 @@ def create_groups(members, group_type, max_sages, max_knights, max_swordsmen):
         if not swapped:
             break
             
-    return teams, leftover_members
+    return teams, leftover
 
 
 @bot.tree.command(name='add_leader_candidate', description='リーダー候補にメンバーを追加します。')
