@@ -4,8 +4,9 @@ from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
 import random
-import math
 import logging
+from flask import Flask
+from threading import Thread
 
 # Load the token from a .env file
 load_dotenv()
@@ -200,9 +201,9 @@ async def rename_member(interaction: discord.Interaction, old_name: str, new_nam
         carried_members[user_id].remove(old_name)
         carried_members[user_id].append(new_name)
             
-    if user_id in fixed_teams and old_name in fixed_teams[user_id]:
-        fixed_teams[user_id].remove(old_name)
-        fixed_teams[user_id].append(new_name)
+    if user_id in fixed_teams and old_name in fixed_teams[user_id]['members']:
+        fixed_teams[user_id]['members'].remove(old_name)
+        fixed_teams[user_id]['members'].append(new_name)
             
     if user_id in preferred_members and old_name in preferred_members[user_id]:
         preferred_members[user_id].remove(old_name)
@@ -363,14 +364,14 @@ async def clear_excluded(interaction: discord.Interaction):
         await interaction.response.send_message('除外メンバーリストはすでに空です。')
         
 @bot.tree.command(name='fix_team', description='指定したメンバーをチームに固定し、特定のメンバーを優先的に追加します。')
-@app_commands.describe(fixed_names='チームに固定するメンバーの名前 (スペース区切り)', preferred_names='固定チームに優先的に追加するメンバーの名前 (スペース区切り)')
-async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred_names: str = None):
+@app_commands.describe(fixed_names='チームに固定するメンバーの名前 (スペース区切り)', preferred_names='固定チームに優先的に追加するメンバーの名前 (スペース区切り)', fixed_probability='固定メンバーがチームに含まれる確率 (0.0 から 1.0 の間, デフォルトは 1.0)')
+async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred_names: str = None, fixed_probability: float = 1.0):
     """
     Sets one or more members to be "fixed" in a team, with optional preferred members.
     """
     user_id = interaction.user.id
     if user_id not in fixed_teams:
-        fixed_teams[user_id] = []
+        fixed_teams[user_id] = {'members': [], 'probability': 1.0}
     if user_id not in preferred_members:
         preferred_members[user_id] = []
 
@@ -378,13 +379,16 @@ async def fix_team(interaction: discord.Interaction, fixed_names: str, preferred
     not_found_fixed = []
     fixed_list = fixed_names.split()
     
+    # Update fixed probability
+    fixed_teams[user_id]['probability'] = fixed_probability
+    
     for name in fixed_list:
         if name not in [p['name'] for p in OVERALL_RANKS]:
             not_found_fixed.append(name)
-        elif name in fixed_teams[user_id]:
+        elif name in fixed_teams[user_id]['members']:
             pass
         else:
-            fixed_teams[user_id].append(name)
+            fixed_teams[user_id]['members'].append(name)
             added_fixed.append(name)
             
     message = ''
@@ -424,7 +428,7 @@ async def clear_fixed(interaction: discord.Interaction):
     """
     user_id = interaction.user.id
     if user_id in fixed_teams:
-        fixed_teams[user_id] = []
+        fixed_teams[user_id] = {'members': [], 'probability': 1.0}
     if user_id in preferred_members:
         preferred_members[user_id] = []
     
@@ -437,7 +441,7 @@ async def check_available(interaction: discord.Interaction):
     """
     user_id = interaction.user.id
     excluded_list = excluded_members.get(user_id, [])
-    fixed_list = fixed_teams.get(user_id, [])
+    fixed_list = fixed_teams.get(user_id, {'members': [], 'probability': 1.0})['members']
     preferred_list = preferred_members.get(user_id, [])
     
     fixed_and_preferred = set(fixed_list) | set(preferred_list)
@@ -458,46 +462,49 @@ async def check_available(interaction: discord.Interaction):
 @bot.tree.command(name='auto_create_group', description='自動的にメンバーを選出し、指定されたタイプのグループを作成します。')
 @app_commands.describe(
     group_type='グループのタイプ: balance, high_power, carry (デフォルトはbalance)',
-    probability='固定チームに優先メンバーが追加される確率 (0.0 から 1.0 の間, デフォルトは 1.0)',
+    preferred_probability='固定チームに優先メンバーが追加される確率 (0.0 から 1.0 の間, デフォルトは 1.0)',
     max_sages='各チームの賢者の上限人数 (デフォルトは1)',
     max_knights='各チームの騎士の上限人数 (デフォルトは1)',
-    max_swordsmen='各チームの剣士の上限人数 (デフォルトは2)'
+    max_swordsmen='各チームの剣士の上限人数 (デフォルトは1)'
 )
-async def auto_create_group(interaction: discord.Interaction, group_type: str = 'balance', probability: float = 1.0, max_sages: int = 1, max_knights: int = 1, max_swordsmen: int = 2):
+async def auto_create_group(interaction: discord.Interaction, group_type: str = 'balance', preferred_probability: float = 1.0, max_sages: int = 1, max_knights: int = 1, max_swordsmen: int = 1):
     print("--- Debug Log: auto_create_group command started ---")
     await interaction.response.defer()
     
     user_id = interaction.user.id
     excluded_list = excluded_members.get(user_id, [])
     carried_list = carried_members.get(user_id, [])
-    fixed_list = fixed_teams.get(user_id, [])
+    
+    fixed_team_data = fixed_teams.get(user_id, {'members': [], 'probability': 1.0})
+    fixed_list = fixed_team_data['members']
+    fixed_probability = fixed_team_data['probability']
     preferred_list = preferred_members.get(user_id, [])
 
     print(f"User ID: {user_id}")
     print(f"Exclusion List: {excluded_list}")
     print(f"Carried List: {carried_list}")
-    print(f"Fixed Team List: {fixed_list}")
+    print(f"Fixed Team List: {fixed_list} (Probability: {fixed_probability})")
     print(f"Preferred Members List: {preferred_list}")
-    print(f"Probability: {probability}")
     
-    fixed_members = [p for p in OVERALL_RANKS if p['name'] in fixed_list]
-    preferred_for_team1 = [p for p in OVERALL_RANKS if p['name'] in preferred_list]
-    
-    team1_members = fixed_members[:]
+    team1_members = []
     other_members = []
     
-    for member in preferred_for_team1:
-        if random.random() < probability:
+    for member_name in fixed_list:
+        member = next((p for p in OVERALL_RANKS if p['name'] == member_name), None)
+        if member and random.random() < fixed_probability:
             team1_members.append(member)
-        else:
+        elif member:
             other_members.append(member)
             
-    processed_members_names = set(fixed_list) | set(preferred_list)
-    available_members = [
-        p for p in OVERALL_RANKS
-        if p['name'] not in excluded_list and p['name'] not in processed_members_names
-    ]
-    
+    for member_name in preferred_list:
+        member = next((p for p in OVERALL_RANKS if p['name'] == member_name), None)
+        if member and random.random() < preferred_probability:
+            team1_members.append(member)
+        elif member:
+            other_members.append(member)
+            
+    processed_names = set(m['name'] for m in team1_members) | set(m['name'] for m in other_members) | set(excluded_list)
+    available_members = [p for p in OVERALL_RANKS if p['name'] not in processed_names]
     available_members.extend(other_members)
     random.shuffle(available_members)
     
@@ -505,12 +512,10 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
     print(f"Number of total members: {num_total_members}")
     
     if num_total_members < 3 and len(team1_members) < 3:
-        print("Warning: Less than 3 members available.")
         await interaction.followup.send(
-            f'⚠️ グループを作成するには最低3人のメンバーが必要です。現在参加可能なメンバーは**{num_total_members}人**です。'
-            f'\n`/member_list`コマンドでメンバーを確認してください。'
+            f'⚠️ グループを作成するには最低3人のメンバーが必要です。現在参加可能なメンバーは**{num_total_members}人**です。\n'
+            f'`/member_list`コマンドでメンバーを確認してください。'
         )
-        print("--- Debug Log: Command finished (warning) ---")
         return
 
     final_teams = []
@@ -524,29 +529,18 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         group_type = 'carry'
 
     if group_type == 'carry':
-        print("Group Type: Carry")
         message_header = '**🤖 自動グループ編成結果 (キャリー型)**\n\n'
-        if not carried_list:
-            print("Error: Carried list is empty.")
-            await interaction.followup.send('キャリー型グループを作成するには、`/set_carried`でキャリー対象を設定するか、`/auto_create_group carry`と指定してください。')
-            print("--- Debug Log: Command finished (error) ---")
+        
+        if not carried_list or not any(m['name'] == carried_list[0] for m in available_members):
+            await interaction.followup.send(f'指定されたキャリーメンバー `{carried_list[0] if carried_list else ""}` が参加可能メンバーリストに見つかりませんでした。')
             return
-
-        carried_member = next((m for m in available_members if m['name'] == carried_list[0]), None)
-
-        if not carried_member:
-            print(f"Error: Carried member '{carried_list[0]}' not found in available members.")
-            await interaction.followup.send(f'指定されたキャリーメンバー `{carried_list[0]}` が参加可能メンバーリストに見つかりませんでした。')
-            print("--- Debug Log: Command finished (error) ---")
-            return
-
+            
+        carried_member = next(m for m in available_members if m['name'] == carried_list[0])
         remaining_members = [m for m in available_members if m['name'] != carried_list[0]]
         remaining_members.sort(key=lambda x: x['power'], reverse=True)
 
         if len(remaining_members) < 3:
-            print(f"Warning: Less than 3 remaining members. Count: {len(remaining_members)}")
             await interaction.followup.send(f'キャリーチームを編成するには、{len(remaining_members)}人ではメンバーが不足しています。')
-            print("--- Debug Log: Command finished (warning) ---")
             return
 
         top_players_pool = remaining_members[:10]
@@ -563,18 +557,17 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         final_teams.extend(teams_balance)
         
     elif group_type == 'balance':
-        print("Group Type: Balance")
         message_header = '**🤖 自動グループ編成結果 (バランス型)**\n\n'
-        final_teams, leftover = create_groups(available_members, 'balance', max_sages, max_knights, max_swordsmen)
+        teams_balance, leftover = create_groups(available_members, 'balance', max_sages, max_knights, max_swordsmen)
+        final_teams.extend(teams_balance)
         
     elif group_type == 'high_power':
-        print("Group Type: High Power")
         message_header = '**🤖 自動グループ編成結果 (高戦力型)**\n\n'
-        final_teams, leftover = create_groups(available_members, 'high_power', max_sages, max_knights, max_swordsmen)
+        teams_high_power, leftover = create_groups(available_members, 'high_power', max_sages, max_knights, max_swordsmen)
+        final_teams.extend(teams_high_power)
         
     else:
         await interaction.followup.send(f'無効なグループタイプです。`balance`, `high_power`, `carry`から選択してください。')
-        print("--- Debug Log: Command finished (invalid type) ---")
         return
 
     teams_with_leader = []
@@ -592,9 +585,7 @@ async def auto_create_group(interaction: discord.Interaction, group_type: str = 
         })
 
     if not teams_with_leader:
-        print("Warning: Failed to form groups.")
         await interaction.followup.send("グループを編成できませんでした。")
-        print("--- Debug Log: Command finished (formation failed) ---")
         return
 
     message = message_header
@@ -817,11 +808,3 @@ async def power_list(interaction: discord.Interaction):
 
     for profession, ranks in PLAYER_RANKS.items():
         message += f'**{profession}**\n'
-        for i, (name, power) in enumerate(ranks):
-            message += f'{i + 1}. {name}さん: 戦力 {power}\n'
-        message += '\n'
-    await interaction.response.send_message(message)
-
-# ボットを起動
-if __name__ == '__main__':
-    bot.run(TOKEN)
